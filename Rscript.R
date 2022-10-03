@@ -159,7 +159,7 @@ IBD_plot = function(IBD_df ,signalname = "signal_c", list_plot , legend_names, p
 #################################################################
 ##                            Tests                            ##
 #################################################################
-##first run all above functions
+##Load all above functions
 bed = read.table(file = "coverage/FL_18_48_46_filter.bedgraph",header = F)
 df1 = bimodal_detect(bed$V4,thres_adjust = -1)
 path = "./coverage/"
