@@ -44,7 +44,7 @@ bimodal_detect <- function(y,wind = 40,lap = 20,thres_adjust = 0, q=0.1) {
   return(df)
   }
 
-#plot coverage, smooth function and peak detection results
+#plot coverage, smooth function and peak detection
 overlay_plot <- function(coverage, df) {
   pos = 1:length(coverage)
   df_s = df %>% filter(signal == 1) %>% mutate(signal=signal-1)
@@ -71,15 +71,13 @@ bed_input_main <- function(path, files,genotype, wsize=5000, overlayP=T,wind = 4
   ##path: folder path with all bedgraph output
   ##files: file names for all samples
   ##q:cutoff quantile for detecting the junction of two peaks, default of 0.1 which is applicable to BC3 or earlier generations
-  ##genotype: genotype names for files
-  ##list plot: the list of genotypes displayed in the final plot
+  ##genotype: genotype names corresponding to file names
   ##wsize: window size used in coverage/bedgraph
   ##wind: window size used for smooth function, default value is 40
   ##lap: lap window size used in smooth function, default value is 20
-  ##adjust detect by multiply of sd, default value is thres_adjust = -1
+  ##adjust coverage cutoff by n*sd, default value is thres_adjust = -1
   ##overlayP: whether to save overlay plots
-  ##write_sum: to write a summary file including chromosomal chiloensis proportion in each sample 
-  ##wind,lap ,thres_adjust are bimodal_detect parameters 
+  ##write_sum: to write a summary file including chromosomal IBD proportion in each sample 
   ##correct_ped: whether to correct IBD assignment based on pedigree
   ##pedigree, list used for pedigree correction. For example, list(c(a,b,c),c(a,d,e)) means, a is the parent of b and b is parent of c etc.
   myfiles = lapply(paste0(path,files), function(x) read.table(x,header = F) %>% filter(str_detect(V1,"chr")))
@@ -140,7 +138,7 @@ IBD_plot = function(IBD_df ,signalname = "signal_c", list_plot , legend_names, p
     ##signalname: column name of IBD result
     ##list_plot: selection of genotypes to plot
     ##legend_names: genotype names shown on the legend box
-    ##showIBD: whether to show genowide IBD
+    ##showIBD: whether to show genomewide IBD percent for each sample
     coef_df = data.frame("Geno"=list_plot,"coef"=1:length(list_plot))
     df = IBD_df %>% filter(Geno %in% list_plot) %>% left_join(coef_df,by = "Geno") %>% 
       mutate(s1 = !! sym(signalname) * coef) 
@@ -239,6 +237,3 @@ phen_df %>% filter(Brix>0) %>%
   theme_bw(base_size = 15) +
   theme(legend.position = "")
 
-
-##test
-read
