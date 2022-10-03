@@ -7,16 +7,14 @@
 
 library(npreg)
 library(tidyverse)
-bed = read.table(file = "coverage/FL_12_105_54_filter.bedgraph",header = F)
-
-#signal detection function using spine smooth function 
-bimodal_detect <- function(y,wind = 40,lap = 20,thres_adjust = 0) {
+#signal detection function using spline smooth function 
+bimodal_detect <- function(y,wind = 40,lap = 20,thres_adjust = 0, q=0.1) {
   ##spine smoothing 
   bed_sm = ss(x=1:length(y),y=y, m = 1)
   smooth_y = bed_sm$y
   den = density(smooth_y)
-  q_90 = quantile(smooth_y,probs = 0.90)
-  q_10 = quantile(smooth_y,probs = 0.1)
+  q_90 = quantile(smooth_y,probs = 1-q)
+  q_10 = quantile(smooth_y,probs = q)
   ##detect junction of two distributions
   den_min = data.frame(x = den$x, y =den$y) %>% filter( x < q_90,x> q_10) %>% 
     filter(y==min(y))
@@ -25,10 +23,10 @@ bimodal_detect <- function(y,wind = 40,lap = 20,thres_adjust = 0) {
   nsd = floor((den_min$x-nibd_m)/nibd_sd)
   if (nsd>=4) {
     thre =nibd_m + 3*nibd_sd
-    
   }else {
     thre = nibd_m + (nsd+thres_adjust)*nibd_sd
-    }
+  }
+  print(paste("sd is", nibd_sd,"thres",thre,"den min",den_min$x))
   ##peak detection
   df <- data.frame("signal" = rep(0,ceiling(length(smooth_y)/(wind-lap))),
                    "window" = 0,"wstart"=0,"wend"=0,"mean_y" =0)
@@ -46,8 +44,6 @@ bimodal_detect <- function(y,wind = 40,lap = 20,thres_adjust = 0) {
   return(df)
   }
 
-df1 = bimodal_detect(bed$V4,thres_adjust = 0)
-
 #plot coverage, smooth function and peak detection results
 overlay_plot <- function(coverage, df) {
   pos = 1:length(coverage)
@@ -64,23 +60,28 @@ overlay_plot <- function(coverage, df) {
     theme_bw(base_size =15) +
     theme(legend.position = c(0.1,0.85))
 }
-overlay_plot(bed$V4,df1)
 
-##plot IBD each generation in one plot
-path = "./coverage/"
-files = list.files(path = path,pattern="*.bedgraph")
-genotype = str_extract(files,pattern = "\\w+(?=_filter)")
-PI612498_BC = c("FL_12_105_54", "FL_15_80_74", "FL_18_48_46")
-PI612498_l = c("BC1","BC2","BC3")
-PI551736_BC = c("FL_11_124_34", "FL_12_107_28","FL_18_46_54")
-PI551736_l= c("F1","BC2","BC3")
-wsize=5000
-list_plot = PI551736_BC
-overlayP=T
-legend_names=PI551736_l
-
-
-bed_input_main <- function(path, files,genotype, list_plot = genotype, legend_names=genotype, wsize=5000, overlayP=T,wind = 40,lap = 20,thres_adjust = 0) {
+##main function starts here
+bed_input_main <- function(path, files,genotype, wsize=5000, overlayP=T,wind = 40,lap = 20,thres_adjust = -1,q=0.1,
+                           write_sum = F,correct_ped = F, pedigree = list ()) {
+  
+  ##Main function: output IBD segments with provided window size. The input is the file path to all bedgraph files 
+  ##We implemented a lineage-based correction method which corrects IBD assignment of progeny based on 
+  ##IBD segments of its parent. 
+  ##path: folder path with all bedgraph output
+  ##files: file names for all samples
+  ##q:cutoff quantile for detecting the junction of two peaks, default of 0.1 which is applicable to BC3 or earlier generations
+  ##genotype: genotype names for files
+  ##list plot: the list of genotypes displayed in the final plot
+  ##wsize: window size used in coverage/bedgraph
+  ##wind: window size used for smooth function, default value is 40
+  ##lap: lap window size used in smooth function, default value is 20
+  ##adjust detect by multiply of sd, default value is thres_adjust = -1
+  ##overlayP: whether to save overlay plots
+  ##write_sum: to write a summary file including chromosomal chiloensis proportion in each sample 
+  ##wind,lap ,thres_adjust are bimodal_detect parameters 
+  ##correct_ped: whether to correct IBD assignment based on pedigree
+  ##pedigree, list used for pedigree correction. For example, list(c(a,b,c),c(a,d,e)) means, a is the parent of b and b is parent of c etc.
   myfiles = lapply(paste0(path,files), function(x) read.table(x,header = F) %>% filter(str_detect(V1,"chr")))
   names(myfiles) = genotype
   chr_l = myfiles %>% bind_rows() %>% group_by(V1) %>% summarise(max_end=max(V3)) %>% mutate(end = ceiling(max_end/5000))
@@ -105,49 +106,102 @@ bed_input_main <- function(path, files,genotype, list_plot = genotype, legend_na
       ggsave(filename = paste0(i,"_overlayplot.png"),units="in",width=8,height=4)
     }
   }  
-  ##build a plot with base layers
   IBD_df = bind_rows(IBD_list,.id = "Geno")
+  IBD_w = IBD_df %>% select(Geno,signal,window) %>% pivot_wider(names_from = Geno,values_from = signal)
+  ##correct IBD based on ped
+  if (correct_ped) {
+    for (l in pedigree) {
+      for (i in 1:(length(l)-1)) {
+        IBD_w[,l[i+1]] = IBD_w[,l[i+1]]*IBD_w[,l[i]]
+      }
+    }
+  }
   
-  #IBD_df = IBD_df %>% mutate(signal=ifelse(Geno=="FL_18_46_54" & window >= 2391 & window <= 2404 , 0, signal)) %>% 
-  #  mutate(signal=ifelse(Geno=="FL_18_46_54" & window >= 5718 & window <= 5887 , 0, signal)) %>% 
-  #  mutate(signal=ifelse(Geno=="FL_18_46_54" & window <= 526 , 0, signal))
-  
-  coef_df = data.frame("Geno"=list_plot,"coef"=1:length(list_plot))
-  IBD_df %>% filter(Geno %in% list_plot) %>% left_join(coef_df,by = "Geno") %>% mutate(signal = signal * coef)%>% 
-    ggplot(aes(x=wstart,y=signal)) +
-    geom_point(aes(color = Geno)) + 
-    scale_x_continuous(labels = str_remove(chr_n,"chr_"),breaks =cumsum(chr_b) )+
-    scale_color_discrete(labels=legend_names, name="chiloensis") +
-    coord_cartesian(ylim=c(0.7,length(list_plot)+0.2),xlim = c(0,max(IBD_df$wend)))+
-    theme_bw(base_size = 15) +
-    labs(y="IBD",x="Chromosome")+
-    theme(axis.text.x = element_text(hjust = 1),panel.grid.major.y  = element_blank(),panel.grid.minor.y = element_blank() ,panel.grid.minor.x = element_blank(),
-          axis.text.y = element_blank())
-
-
+  IBD_n = IBD_w %>% pivot_longer(names_to = "Geno",cols = contains("FL"), values_to = "signal_c")
+  IBD_f = IBD_df %>% left_join(IBD_n, by =c("window","Geno"))
+  IBD = IBD_f %>% left_join(df.st %>% rownames_to_column(var = "id") %>% mutate(id=as.numeric(id)), by=c("wstart"="id"))
   #summary stats table, needs to be returned
-  IBD_df = IBD_df %>% left_join(df.st %>% rownames_to_column(var = "id") %>% mutate(id=as.numeric(id)), by=c("wstart"="id")) %>% select(-c(start,end))
-  IBD_sum = IBD_df %>%  group_by(Geno,chr) %>% summarise(IBD_p = sum(signal)/n()) %>% 
-    pivot_wider(names_from = Geno,values_from = IBD_p ) %>% mutate(chr_length = chr_end)
-  write.csv(IBD_sum,file = "IBD_proportion_chr.csv",row.names = F)
-  return(IBD_df)
+  if (write_sum ) {
+    IBD_sum = IBD %>%  group_by(Geno,chr) %>% summarise(IBD_p = sum(signal_c)/(2*n())) %>% 
+      pivot_wider(names_from = Geno,values_from = IBD_p ) %>% mutate(chr_length = chr_end)
+    write.csv(IBD_sum,file = "IBD_proportion_chr.csv",row.names = F)
+    
+  }
+  return(IBD)
 }
 
 
-B3_over = IBD_df %>%select(-mean_y) %>%  pivot_wider(names_from = Geno,values_from = signal) %>% filter(FL_18_46_54==1 & FL_18_48_46==1)
-B3_over %>% group_by(chr) %>% summarise(st=min(wstart),end=max(wend))
+##################################################################
+##                        Plot IBD graph                        ##
+##################################################################
 
+IBD_plot = function(IBD_df ,signalname = "signal_c", list_plot , legend_names, plot_label = "IBD")
+  { ##IBD_df: output from bed_input_main
+    ##signalname: column name of IBD result
+    ##list_plot: selection of genotypes to plot
+    ##legend_names: genotype names shown on the legend box
+    ##showIBD: whether to show genowide IBD
+    coef_df = data.frame("Geno"=list_plot,"coef"=1:length(list_plot))
+    df = IBD_df %>% filter(Geno %in% list_plot) %>% left_join(coef_df,by = "Geno") %>% 
+      mutate(s1 = !! sym(signalname) * coef) 
+    IBD_perc = df %>% group_by(Geno) %>% summarise(prop = round(sum(signal_c)/max(window),3)*100/2) %>% pull(prop)
+    p1 = df %>% 
+      ggplot(aes(x=wstart,y=s1)) +
+      geom_point(aes(color = Geno)) + 
+      scale_x_continuous(labels = str_remove(chr_n,"chr_"),breaks =cumsum(chr_b) )+
+      scale_color_discrete(labels=paste0(legend_names," ",IBD_perc,"%"), name=plot_label) +
+      coord_cartesian(ylim=c(0.7,length(list_plot)+0.2),xlim = c(0,max(IBD_df$wend)))+
+      theme_bw(base_size = 15) +
+      labs(y="",x="Chromosome")+
+      theme(axis.text.x = element_text(hjust = 1),panel.grid.major.y  = element_blank(),panel.grid.minor.y = element_blank() ,panel.grid.minor.x = element_blank(),
+            axis.text.y = element_blank())
+    return(p1)
+}
+
+#################################################################
+##                            Tests                            ##
+#################################################################
+##first run all above functions
+bed = read.table(file = "coverage/FL_18_48_46_filter.bedgraph",header = F)
+df1 = bimodal_detect(bed$V4,thres_adjust = -1)
+path = "./coverage/"
+files = list.files(path = path,pattern="*.bedgraph")
+genotype = str_extract(files,pattern = "\\w+(?=_filter)")
+#two backcross families
+PI612498_BC = c("FL_12_105_54", "FL_15_80_74", "FL_18_48_46")
+PI612498_l = c("BC1","BC2","BC3")
+PI551736_BC = c("FL_11_124_34", "FL_12_107_28","FL_18_46_54")
+PI551736_l= c("F1","BC1","BC3")
+wsize=5000
+list_plot = PI551736_BC
+overlayP=T
+legend_names=PI551736_l
+pedigree = list (c("FL_12_105_54", "FL_15_80_74", "FL_18_48_46"),c("FL_12_107_28","FL_18_46_54"))
+##main function
+IBD_all = bed_input_main(path=path, files = files,genotype=genotype, wsize=5000, overlayP=F,
+                         wind = 40,lap = 20,thres_adjust = -1,
+                         write_sum = F,correct_ped = T, pedigree =pedigree)
+##plot genomewide IBD 
+p1 = IBD_plot(IBD_all ,signalname = "signal_c", list_plot= PI612498_BC, legend_names = PI612498_l,
+         plot_label = "IBD F.virginiana")
+p2 = IBD_plot(IBD_all ,signalname = "signal_c", list_plot= PI551736_BC, legend_names = PI551736_l,
+              plot_label = "IBD F.chiloensis")
+p1
+p2
 #compare retained IBD regions and chi pro
-chi = read.csv(file = "chiloensis_pro.csv",header = T)
 library(ggpmisc)
+chi = read.csv(file = "chiloensis_pro.csv",header = T)
+IBD_sum = read.csv(file = "IBD_proportion_chr.csv", header = T)
 IBD_sum %>%  mutate(chr = str_remove(chr,"chr_")) %>% left_join(chi %>% filter(Group=="UF") %>% group_by(chr) %>% summarise(chi_p = median(chi_p)),by = "chr") %>% 
   ggplot(aes(x=chi_p,y=FL_18_46_54)) +
   stat_poly_line() +
   stat_poly_eq() +
   geom_point() + 
-  labs(x="Chiloensis Proportion", y="IBD from Chiloensis") +
+  labs(x="Chiloensis Proportion", y="Chiloensis BC3") +
   theme_bw(base_size = 15)
-
+IBD_sum = IBD_sum %>%  mutate(chr = str_remove(chr,"chr_")) %>% left_join(chi %>% filter(Group=="UF") %>% group_by(chr) %>% summarise(chi_p = median(chi_p)),by = "chr")
+model = lm(FL_18_46_54~chi_p, data = IBD_sum)
+summary(model)
 #yield change, line plot
 library(readxl)
 path = "./Field_raw/"
@@ -184,3 +238,7 @@ phen_df %>% filter(Brix>0) %>%
   labs(x="Generation", y="Brix(%)")+
   theme_bw(base_size = 15) +
   theme(legend.position = "")
+
+
+##test
+read
