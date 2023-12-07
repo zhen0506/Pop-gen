@@ -2,7 +2,7 @@
 ##################################################################
 ##                   kmer based IBD detection                   ##
 ##                           Zhen Fan                           ##
-##                            10-3-22                           ##
+##                            6-13-22                           ##
 ##################################################################
 
 library(npreg)
@@ -159,7 +159,7 @@ IBD_plot = function(IBD_df ,signalname = "signal_c", list_plot , legend_names, p
 #################################################################
 ##                            Tests                            ##
 #################################################################
-##Load all above functions
+##first run all above functions
 bed = read.table(file = "coverage/FL_18_48_46_filter.bedgraph",header = F)
 df1 = bimodal_detect(bed$V4,thres_adjust = -1)
 path = "./coverage/"
@@ -188,17 +188,16 @@ p1
 p2
 #compare retained IBD regions and chi pro
 library(ggpmisc)
-chi = read.csv(file = "chiloensis_pro.csv",header = T)
+AD = read.csv(file = "../WildPhylo/Octoploidpaper/chr_group_virPro.csv",header = T)
 IBD_sum = read.csv(file = "IBD_proportion_chr.csv", header = T)
-IBD_sum %>%  mutate(chr = str_remove(chr,"chr_")) %>% left_join(chi %>% filter(Group=="UF") %>% group_by(chr) %>% summarise(chi_p = median(chi_p)),by = "chr") %>% 
-  ggplot(aes(x=chi_p,y=FL_18_46_54)) +
+IBD_sum = IBD_sum %>%  left_join(AD %>% filter(Group=="UF") %>% group_by(Chr) %>% summarise(chi = 1 - median(Fvv.m)),by = c("chr"="Chr"))
+IBD_sum %>% ggplot(aes(x=chi,y=FL_18_46_54)) +
   stat_poly_line() +
   stat_poly_eq() +
   geom_point() + 
   labs(x="Chiloensis Proportion", y="Chiloensis BC3") +
   theme_bw(base_size = 15)
-IBD_sum = IBD_sum %>%  mutate(chr = str_remove(chr,"chr_")) %>% left_join(chi %>% filter(Group=="UF") %>% group_by(chr) %>% summarise(chi_p = median(chi_p)),by = "chr")
-model = lm(FL_18_46_54~chi_p, data = IBD_sum)
+model = lm(FL_18_46_54~chi, data = IBD_sum)
 summary(model)
 #yield change, line plot
 library(readxl)
