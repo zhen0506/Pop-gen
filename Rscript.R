@@ -143,11 +143,13 @@ IBD_plot = function(IBD_df ,signalname = "signal_c", list_plot , legend_names, p
     df = IBD_df %>% filter(Geno %in% list_plot) %>% left_join(coef_df,by = "Geno") %>% 
       mutate(s1 = !! sym(signalname) * coef) 
     IBD_perc = df %>% group_by(Geno) %>% summarise(prop = round(sum(signal_c)/max(window),3)*100/2) %>% pull(prop)
+    chr_b = df %>% group_by(chr) %>% summarise(chr_b = max(wstart)) %>% pull(chr_b)
+    chr_n = unique(df$chr)
     p1 = df %>% 
       ggplot(aes(x=wstart,y=s1)) +
       geom_point(aes(color = Geno)) + 
-      scale_x_continuous(labels = str_remove(chr_n,"chr_"),breaks =cumsum(chr_b) )+
-      scale_color_discrete(labels=paste0(legend_names," ",IBD_perc,"%"), name=plot_label) +
+      scale_x_continuous(labels = str_remove(chr_n,"chr_"),breaks =chr_b )+
+      scale_color_discrete(type = c("green","magenta","blue"),labels=paste0(legend_names," ",IBD_perc,"%"), name=plot_label) +
       coord_cartesian(ylim=c(0.7,length(list_plot)+0.2),xlim = c(0,max(IBD_df$wend)))+
       theme_bw(base_size = 15) +
       labs(y="",x="Chromosome")+
@@ -179,6 +181,7 @@ pedigree = list (c("FL_12_105_54", "FL_15_80_74", "FL_18_48_46"),c("FL_12_107_28
 IBD_all = bed_input_main(path=path, files = files,genotype=genotype, wsize=5000, overlayP=F,
                          wind = 40,lap = 20,thres_adjust = -1,
                          write_sum = F,correct_ped = T, pedigree =pedigree)
+
 ##plot genomewide IBD 
 p1 = IBD_plot(IBD_all ,signalname = "signal_c", list_plot= PI612498_BC, legend_names = PI612498_l,
          plot_label = "IBD F.virginiana")
@@ -188,13 +191,15 @@ p1
 p2
 #compare retained IBD regions and chi pro
 library(ggpmisc)
+library(scales)
 AD = read.csv(file = "../WildPhylo/Octoploidpaper/chr_group_virPro.csv",header = T)
 IBD_sum = read.csv(file = "IBD_proportion_chr.csv", header = T)
 IBD_sum = IBD_sum %>%  left_join(AD %>% filter(Group=="UF") %>% group_by(Chr) %>% summarise(chi = 1 - median(Fvv.m)),by = c("chr"="Chr"))
 IBD_sum %>% ggplot(aes(x=chi,y=FL_18_46_54)) +
   stat_poly_line() +
   stat_poly_eq() +
-  geom_point() + 
+  geom_point() +
+  scale_y_continuous(labels = label_number(scale = 1, suffix = "", big.mark = "", decimal.mark = ".", trim = TRUE)) +
   labs(x="Chiloensis Proportion", y="Chiloensis BC3") +
   theme_bw(base_size = 15)
 model = lm(FL_18_46_54~chi, data = IBD_sum)
